@@ -18,20 +18,20 @@ jobs:
       uses: classroom-resources/autograding-python-grader@v1
       with:
         timeout: 10
-        setup-command: sudo -H pip3 install -qr requirements.txt; sudo -H pip3 install
-          darglint==1.8.0; sudo -H pip3 install flake8==5.0.4
+        setup-command: pip3 install -qr requirements.txt; pip3 install
+          darglint==1.8.0; pip3 install flake8==5.0.4
     - name: Task 3.1
       id: task-3-1
       uses: classroom-resources/autograding-python-grader@v1
       with:
         timeout: 10
-        setup-command: sudo -H pip3 install -qr requirements.txt
+        setup-command: pip3 install -qr requirements.txt
     - name: Task 3.2
       id: task-3-2
       uses: classroom-resources/autograding-python-grader@v1
       with:
         timeout: 10
-        setup-command: sudo -H pip3 install -qr requirements.txt
+        setup-command: pip3 install -qr requirements.txt
     - name: Autograding Reporter
       uses: classroom-resources/autograding-grading-reporter@v1
       env:
