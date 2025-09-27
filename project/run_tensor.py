@@ -5,11 +5,62 @@ Be sure you have minitorch installed in you Virtual Env.
 
 import minitorch
 
-# Use this function to make a random parameter in
-# your module.
+
 def RParam(*shape):
     r = 2 * (minitorch.rand(shape) - 0.5)
     return minitorch.Parameter(r)
+
+
+class Network(minitorch.Module):
+    def __init__(self, hidden_layers):
+        super().__init__()
+
+        # Submodules
+        self.layer1 = Linear(2, hidden_layers)
+        self.layer2 = Linear(hidden_layers, hidden_layers)
+        self.layer3 = Linear(hidden_layers, 1)
+
+    def forward(self, x):
+        # x: shape (..., 2)
+        # Layer 1
+        out = self.layer1.forward(x)
+        out = out.f.relu_map(out)  # ReLU после первой линейной
+
+        # Layer 2
+        out = self.layer2.forward(out)
+        out = out.f.relu_map(out)  # ReLU после второй линейной
+
+        # Layer 3
+        out = self.layer3.forward(out)
+        out = out.f.sigmoid_map(out)  # Sigmoid для предсказания
+
+        return out
+
+
+class Linear(minitorch.Module):
+    def __init__(self, in_size, out_size):
+        super().__init__()
+        self.weights = RParam(in_size, out_size)
+        self.bias = RParam(out_size)
+        self.out_size = out_size
+
+    def forward(self, x):
+        # x: (batch, in_size); weights: (in_size, out_size)
+        # y[i, j] = sum_k x[i, k] * w[k, j]
+
+        batch_size, in_size = x.shape
+        out_size = self.weights.value.shape[1]
+        y = x.zeros((batch_size, out_size))
+        w = self.weights.value
+
+        # Поэлементная реализация:
+        for i in range(batch_size):
+            for j in range(out_size):
+                s = 0.0
+                for k in range(in_size):
+                    s += x[i, k].item() * w[k, j].item()
+                y[i, j] = s
+        return y.f.add_zip(y, self.bias.value)
 
 
 def default_log_fn(epoch, total_loss, correct, losses):
@@ -28,6 +79,7 @@ class TensorTrain:
         return self.model.forward(minitorch.tensor(X))
 
     def train(self, data, learning_rate, max_epochs=500, log_fn=default_log_fn):
+
         self.learning_rate = learning_rate
         self.max_epochs = max_epochs
         self.model = Network(self.hidden_layers)
