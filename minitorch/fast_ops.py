@@ -33,9 +33,9 @@ def njit(fn: Fn, **kwargs: Any) -> Fn:
     return _njit(inline="always", **kwargs)(fn)  # type: ignore
 
 
-to_index = njit(to_index)
-index_to_position = njit(index_to_position)
-broadcast_index = njit(broadcast_index)
+to_index_ = njit(to_index)
+index_to_position_ = njit(index_to_position)
+broadcast_index_ = njit(broadcast_index)
 
 
 class FastOps(TensorOps):
@@ -170,51 +170,21 @@ def tensor_map(
         size = 1
         for s in out_shape:
             size *= s
-        # Проверка shape/strides без np.array_equal
-        same_shape = True
-        if len(out_shape) != len(in_shape):
-            same_shape = False
-        else:
-            for i in range(len(out_shape)):
-                if out_shape[i] != in_shape[i]:
-                    same_shape = False
-                    break
-        same_strides = True
-        if len(out_strides) != len(in_strides):
-            same_strides = False
-        else:
-            for i in range(len(out_strides)):
-                if out_strides[i] != in_strides[i]:
-                    same_strides = False
-                    break
-        if same_shape and same_strides:
-            for i in prange(size):
+        if np.allclose(out_shape, in_shape) and np.allclose(out_strides, in_strides):
+            for i in prange(len(out)):
                 out[i] = fn(in_storage[i])
         else:
             for ordinal in prange(size):
-                # out_index = [0]*len(out_shape)
-                # in_index = [0]*len(in_shape)
                 out_index = np.empty(len(out_shape), np.int64)
                 in_index = np.empty(len(in_shape), np.int64)
-                curr = ordinal
-                # to_index
-                for d in range(len(out_shape)-1, -1, -1):
-                    out_index[d] = curr % out_shape[d]
-                    curr //= out_shape[d]
-                # broadcast_index
-                in_offset = len(out_shape) - len(in_shape)
-                for i in range(len(in_shape)):
-                    if in_shape[i] == 1:
-                        in_index[i] = 0
-                    else:
-                        in_index[i] = out_index[i + in_offset]
-                # index_to_position
-                out_pos = 0
-                for d in range(len(out_shape)):
-                    out_pos += out_index[d] * out_strides[d]
-                in_pos = 0
-                for d in range(len(in_shape)):
-                    in_pos += in_index[d] * in_strides[d]
+                # Получаем многомерный индекс out_index
+                to_index_(ordinal, out_shape, out_index)
+                # Приводим к индексу входного тензора через broadcasting
+                broadcast_index_(out_index, out_shape, in_shape, in_index)
+                # Получаем позиции в памяти для out и in
+                out_pos = index_to_position_(out_index, out_strides)
+                in_pos = index_to_position_(in_index, in_strides)
+                # Применяем функцию и записываем результат
                 out[out_pos] = fn(in_storage[in_pos])
        
     return njit(_map, parallel=True)  # type: ignore
@@ -257,50 +227,26 @@ def tensor_zip(
         for s in out_shape:
             size *= s
         # если форма и strides совпадают — прямой проход по памяти  
-        if (np.array_equal(out_shape, a_shape)
-            and np.array_equal(out_shape, b_shape)
-            and np.array_equal(out_strides, a_strides)
-            and np.array_equal(out_strides, b_strides)):
-            for i in prange(size):
+        if ((np.allclose(out_shape, a_shape) and np.allclose(out_strides, a_strides)) and (np.allclose(b_shape, a_shape) and np.allclose(b_strides, a_strides))):
+            for i in prange(len(out)):
                 out[i] = fn(a_storage[i], b_storage[i])
         else:
             # Общее решение через индексы
             for ordinal in prange(size):
-                out_index = np.zeros(len(out_shape), np.int32)
-                a_index = np.zeros(len(a_shape), np.int32)
-                b_index = np.zeros(len(b_shape), np.int32)
-                # Раскладываем ordinal в многомерный out_index
-                # to_index
-                curr = ordinal
-                for d in range(len(out_shape)-1, -1, -1):
-                    out_index[d] = curr % out_shape[d]
-                    curr //= out_shape[d]
-                # Вычисляем a_index по правилам broadcasting
-                # broadcast_index
-                a_offset = len(out_shape) - len(a_shape)
-                for i in range(len(a_shape)):
-                    if a_shape[i] == 1:
-                        a_index[i] = 0
-                    else:
-                        a_index[i] = out_index[i + a_offset]
-                # broadcast_index
-                b_offset = len(out_shape) - len(b_shape)
-                for i in range(len(b_shape)):
-                    if b_shape[i] == 1:
-                        b_index[i] = 0
-                    else:
-                        b_index[i] = out_index[i + b_offset]
-                # index_to_position
-                out_pos = 0
-                for d in range(len(out_shape)):
-                    out_pos += out_index[d] * out_strides[d]
-                a_pos = 0
-                for d in range(len(a_shape)):
-                    a_pos += a_index[d] * a_strides[d]
-                b_pos = 0
-                for d in range(len(b_shape)):
-                    b_pos += b_index[d] * b_strides[d]
-
+                out_index = np.empty(len(out_shape), dtype=np.int64)
+                a_index = np.empty(len(a_shape), dtype=np.int64)
+                b_index = np.empty(len(b_shape), dtype=np.int64)
+                # Получаем многомерный индекс в выходном массиве
+                to_index_(ordinal, out_shape, out_index)
+                # Получаем согласованный индекс для первого входа
+                broadcast_index_(out_index, out_shape, a_shape, a_index)
+                # Получаем согласованный индекс для второго входа
+                broadcast_index_(out_index, out_shape, b_shape, b_index)
+                # Преобразуем индексы в позиции в памяти с учётом strides
+                out_pos = index_to_position_(out_index, out_strides)
+                a_pos = index_to_position_(a_index, a_strides)
+                b_pos = index_to_position_(b_index, b_strides)
+                # Применяем функцию к паре элементов и сохраняем результат
                 out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return njit(_zip, parallel=True)  # type: ignore
@@ -342,37 +288,22 @@ def tensor_reduce(
         reduce_dim_size = a_shape[reduce_dim]
 
         for ordinal in prange(size):
-            out_index = np.zeros(len(out_shape), dtype=np.int32)
-            a_index = np.zeros(len(a_shape), dtype=np.int32)
-            # Переводим ordinal -> многомерный out_index
-            curr = ordinal
-            for d in range(len(out_shape)-1, -1, -1):
-                out_index[d] = curr % out_shape[d]
-                curr //= out_shape[d]
-            # Формируем базовый a_index (копируем, кроме reduce_dim = 0)
-            a_index[:] = 0
+            out_index = np.empty(len(out_shape), dtype=np.int64)
+            a_index = np.empty(len(a_shape), dtype=np.int64)
+            # Получаем многомерный индекс на выходе
+            to_index_(ordinal, out_shape, out_index)
+            # Восстанавливаем индекс для a
+            # Копируем out_index в a_index, кроме reduce_dim
             for i in range(len(a_shape)):
-                if i < len(out_shape):
+                if i == reduce_dim:
+                    a_index[i] = 0
+                else:
                     a_index[i] = out_index[i]
-
-            a_pos = 0
-            for d in range(len(a_shape)):
-                a_pos += a_index[d] * a_strides[d]
-            acc = a_storage[a_pos]
-            # Внутренняя редукция по reduce_dim: 
-            for r in range(1, reduce_dim_size):
-                a_index[reduce_dim] = r
-                # index_to_position
-                a_pos = 0
-                for d in range(len(a_shape)):
-                    a_pos += a_index[d] * a_strides[d]
-                value = a_storage[a_pos]
-                acc = fn(acc, value)
-            # Позиция в аутпуте
-            out_pos = 0
-            for d in range(len(out_shape)):
-                out_pos += out_index[d] * out_strides[d]
-            out[out_pos] = acc
+            acc = a_storage[index_to_position_(a_index, a_strides)]
+            for r in range(1, a_shape[reduce_dim]): # 1, 2
+                a_index[reduce_dim] = r # (0, 1) -> (1, 1), (2, 1)
+                acc = fn(acc, a_storage[index_to_position_(a_index, a_strides)])
+            out[index_to_position_(out_index, out_strides)] = acc
 
     return njit(_reduce, parallel=True)  # type: ignore
 
