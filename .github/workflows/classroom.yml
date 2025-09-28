@@ -26,12 +26,14 @@ jobs:
       with:
         timeout: 10
         setup-command: pip3 install -qr requirements.txt
+        working-directory: ./
     - name: Task 3.2
       id: task-3-2
       uses: classroom-resources/autograding-python-grader@v1
       with:
         timeout: 10
         setup-command: pip3 install -qr requirements.txt
+        working-directory: ./
     - name: Autograding Reporter
       uses: classroom-resources/autograding-grading-reporter@v1
       env:
