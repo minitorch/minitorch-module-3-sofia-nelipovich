@@ -371,21 +371,21 @@ def _tensor_matrix_multiply(
                 for k in range(K):
                     # Вычисление позиции в хранилище для каждого тензора
                     # Для broadcast batch
-                    a_batch = b 
-                    b_batch = b
-                    a_pos = (
+                    a_batch = b if a_shape[0] > 1 else 0
+                    b_batch = b if b_shape[0] > 1 else 0
+                    a_pos = int(
                         a_batch * a_strides[0]
                         + i * a_strides[-2]
                         + k * a_strides[-1]
                     )
-                    b_pos = (
+                    b_pos = int(
                         b_batch * b_strides[0]
                         + k * b_strides[-2]
                         + j * b_strides[-1]
                     )
                     acc += a_storage[a_pos] * b_storage[b_pos]
                 out_batch = b
-                out_pos = (
+                out_pos = int(
                     out_batch * out_strides[0]
                     + i * out_strides[-2]
                     + j * out_strides[-1]
