@@ -4,6 +4,7 @@ import random
 from typing import Iterable, Optional, Sequence, Tuple, Union
 
 import numba
+from numba import njit
 import numpy as np
 import numpy.typing as npt
 from numpy import array, float64
@@ -73,9 +74,22 @@ def to_index(ordinal: int, shape: Shape, out_index: OutIndex) -> None:
     # index[1] = 4 % 2 = 0, 4 //= 2 -> 2
     # index[0] = 2 % 3 = 2, 2 //= 3 -> 0
     # Получаем индекс (2,0) — это 5-й (ordinal=4) элемент в порядковой нумерации по row-major разметке.
-    for i in range(len(shape) - 1, -1, -1):
-        out_index[i] = ordinal % shape[i]
-        ordinal //= shape[i]
+    # ВОТ ЭТО ПОЧЕМУ-ТО НЕ РАБОТАЕТ
+    # ord_cpy = ordinal
+    # shape_cpy = shape.copy()
+    # for i in range(len(shape) - 1, -1, -1):
+    #     out_index[i] = ord_cpy % shape_cpy[i]
+    #     ord_cpy //= shape_cpy[i]
+    # А ЭТО ПОЧЕМУ-ТО РАБОТАЕТ
+    idx = ordinal
+    for i in range(len(shape)):
+        if shape[i] == 0:
+            out_index[i] = 0
+        else:
+            prod = 1
+            for s in shape[i+1:]:
+                prod *= s
+            out_index[i] = (idx // prod) % shape[i]
 
 
 def broadcast_index(
