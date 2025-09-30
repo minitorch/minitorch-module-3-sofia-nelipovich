@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.actor != 'github-classroom[bot]'
     steps:
-    - name: List workspace files
-      run: ls -lR
     - name: Checkout code
       uses: actions/checkout@v4
+    - name: List workspace files
+      run: ls -lR
     - name: Style
       id: style
       uses: classroom-resources/autograding-python-grader@v1
