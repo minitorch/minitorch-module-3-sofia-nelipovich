@@ -1,6 +1,9 @@
 from numba import njit
 
+import sys
+sys.path.append('/Users/sofanelipovich/hse/dl-2/hw1/minitorch-module-3-sofia-nelipovich')
 import minitorch
+
 import minitorch.fast_ops
 
 # MAP

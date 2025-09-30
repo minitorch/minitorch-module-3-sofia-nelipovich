@@ -33,9 +33,9 @@ def njit(fn: Fn, **kwargs: Any) -> Fn:
     return _njit(inline="always", **kwargs)(fn)  # type: ignore
 
 
-to_index = njit(to_index)
-index_to_position = njit(index_to_position)
-broadcast_index = njit(broadcast_index)
+to_index_ = njit(to_index)
+index_to_position_ = njit(index_to_position)
+broadcast_index_ = njit(broadcast_index)
 
 
 class FastOps(TensorOps):
@@ -159,7 +159,6 @@ def tensor_map(
         Tensor map function.
 
     """
-
     def _map(
         out: Storage,
         out_shape: Shape,
@@ -168,9 +167,26 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
-
+        size = 1
+        for s in out_shape:
+            size *= s
+        if np.allclose(out_shape, in_shape) and np.allclose(out_strides, in_strides):
+            for i in prange(len(out)):
+                out[i] = fn(in_storage[i])
+        else:
+            for ordinal in prange(size):
+                out_index = np.empty(len(out_shape), np.int64)
+                in_index = np.empty(len(in_shape), np.int64)
+                # Получаем многомерный индекс out_index
+                to_index_(ordinal, out_shape, out_index)
+                # Приводим к индексу входного тензора через broadcasting
+                broadcast_index_(out_index, out_shape, in_shape, in_index)
+                # Получаем позиции в памяти для out и in
+                out_pos = index_to_position_(out_index, out_strides)
+                in_pos = index_to_position_(in_index, in_strides)
+                # Применяем функцию и записываем результат
+                out[out_pos] = fn(in_storage[in_pos])
+       
     return njit(_map, parallel=True)  # type: ignore
 
 
@@ -196,7 +212,6 @@ def tensor_zip(
         Tensor zip function.
 
     """
-
     def _zip(
         out: Storage,
         out_shape: Shape,
@@ -208,8 +223,31 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        size = 1
+        for s in out_shape:
+            size *= s
+        # если форма и strides совпадают — прямой проход по памяти  
+        if ((np.allclose(out_shape, a_shape) and np.allclose(out_strides, a_strides)) and (np.allclose(b_shape, a_shape) and np.allclose(b_strides, a_strides))):
+            for i in prange(len(out)):
+                out[i] = fn(a_storage[i], b_storage[i])
+        else:
+            # Общее решение через индексы
+            for ordinal in prange(size):
+                out_index = np.empty(len(out_shape), dtype=np.int64)
+                a_index = np.empty(len(a_shape), dtype=np.int64)
+                b_index = np.empty(len(b_shape), dtype=np.int64)
+                # Получаем многомерный индекс в выходном массиве
+                to_index_(ordinal, out_shape, out_index)
+                # Получаем согласованный индекс для первого входа
+                broadcast_index_(out_index, out_shape, a_shape, a_index)
+                # Получаем согласованный индекс для второго входа
+                broadcast_index_(out_index, out_shape, b_shape, b_index)
+                # Преобразуем индексы в позиции в памяти с учётом strides
+                out_pos = index_to_position_(out_index, out_strides)
+                a_pos = index_to_position_(a_index, a_strides)
+                b_pos = index_to_position_(b_index, b_strides)
+                # Применяем функцию к паре элементов и сохраняем результат
+                out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return njit(_zip, parallel=True)  # type: ignore
 
@@ -234,7 +272,6 @@ def tensor_reduce(
         Tensor reduce function
 
     """
-
     def _reduce(
         out: Storage,
         out_shape: Shape,
@@ -244,11 +281,31 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        size = 1
+        for s in out_shape:
+            size *= s
+        # Для прохода по осям
+        reduce_dim_size = a_shape[reduce_dim]
+
+        for ordinal in prange(size):
+            out_index = np.empty(len(out_shape), dtype=np.int64)
+            a_index = np.empty(len(a_shape), dtype=np.int64)
+            # Получаем многомерный индекс на выходе
+            to_index_(ordinal, out_shape, out_index)
+            # Восстанавливаем индекс для a
+            # Копируем out_index в a_index, кроме reduce_dim
+            for i in range(len(a_shape)):
+                if i == reduce_dim:
+                    a_index[i] = 0
+                else:
+                    a_index[i] = out_index[i]
+            acc = a_storage[index_to_position_(a_index, a_strides)]
+            for r in range(1, a_shape[reduce_dim]): # 1, 2
+                a_index[reduce_dim] = r # (0, 1) -> (1, 1), (2, 1)
+                acc = fn(acc, a_storage[index_to_position_(a_index, a_strides)])
+            out[index_to_position_(out_index, out_strides)] = acc
 
     return njit(_reduce, parallel=True)  # type: ignore
-
 
 def _tensor_matrix_multiply(
     out: Storage,
@@ -296,8 +353,44 @@ def _tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    # TODO: Implement for Task 3.2.
-    raise NotImplementedError("Need to implement for Task 3.2")
+    # Example shapes:
+    # a: (batch, M, K)
+    # b: (batch, K, N)
+    # out: (batch, M, N)
+
+    batch = out_shape[0] if len(out_shape) == 3 else 1
+    M = out_shape[-2]
+    N = out_shape[-1]
+    K = a_shape[-1]  # == b_shape[-2]
+    assert K == b_shape[-2]
+    # Внешний цикл по всем (batch, M, N)
+    for b in prange(batch):
+        for i in range(M):
+            for j in range(N):
+                acc = 0.0
+                for k in range(K):
+                    # Вычисление позиции в хранилище для каждого тензора
+                    # Для broadcast batch
+                    a_batch = b if a_shape[0] > 1 else 0
+                    b_batch = b if b_shape[0] > 1 else 0
+                    a_pos = int(
+                        a_batch * a_strides[0]
+                        + i * a_strides[-2]
+                        + k * a_strides[-1]
+                    )
+                    b_pos = int(
+                        b_batch * b_strides[0]
+                        + k * b_strides[-2]
+                        + j * b_strides[-1]
+                    )
+                    acc += a_storage[a_pos] * b_storage[b_pos]
+                out_batch = b
+                out_pos = int(
+                    out_batch * out_strides[0]
+                    + i * out_strides[-2]
+                    + j * out_strides[-1]
+                )
+                out[out_pos] = acc
 
 
 tensor_matrix_multiply = njit(_tensor_matrix_multiply, parallel=True)

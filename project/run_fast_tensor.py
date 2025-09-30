@@ -2,6 +2,10 @@ import random
 
 import numba
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + "/.."))
+
 import minitorch
 
 datasets = minitorch.datasets
@@ -29,8 +33,12 @@ class Network(minitorch.Module):
         self.layer3 = Linear(hidden, 1, backend)
 
     def forward(self, x):
-        # TODO: Implement for Task 3.5.
-        raise NotImplementedError("Need to implement for Task 3.5")
+        x = self.layer1(x)
+        x = x.f.relu_map(x)
+        x = self.layer2(x)
+        x = x.f.relu_map(x)
+        x = self.layer3(x)
+        return x
 
 
 class Linear(minitorch.Module):
@@ -43,8 +51,7 @@ class Linear(minitorch.Module):
         self.out_size = out_size
 
     def forward(self, x):
-        # TODO: Implement for Task 3.5.
-        raise NotImplementedError("Need to implement for Task 3.5")
+        return minitorch.FastOps.matrix_multiply(x, self.weights.value) if args.BACKEND != "gpu" else minitorch.CudaOps.matrix_multiply(x, self.weights.value) + self.bias.value
 
 
 class FastTrain:
@@ -79,7 +86,8 @@ class FastTrain:
 
                 out = self.model.forward(X).view(y.shape[0])
                 prob = (out * y) + (out - 1.0) * (y - 1.0)
-                loss = -prob.log()
+                EPS = 1e-7
+                loss = -(prob + EPS).log()
                 (loss / y.shape[0]).sum().view(1).backward()
 
                 total_loss = loss.sum().view(1)[0]
