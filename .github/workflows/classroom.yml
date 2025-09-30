@@ -23,13 +23,6 @@ jobs:
         command: flake8 --ignore "N801, E203, E266, E501, W503, F812, E741, N803,
           N802, N806" minitorch/ tests/ project/; mypy minitorch/*
         timeout: 10
-    - name: Style
-      id: style
-      uses: classroom-resources/autograding-python-grader@v1
-      with:
-        timeout: 10
-        setup-command: pip3 install -qr requirements.txt; pip3 install
-          darglint==1.8.0; pip3 install flake8==5.0.4
     - name: Task 3.1
       id: task-3-1
       uses: classroom-resources/autograding-python-grader@v1
